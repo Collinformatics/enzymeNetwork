@@ -5,9 +5,9 @@ from sklearn.linear_model import LogisticRegression
 
 
 # Input: Files
-inSubstratesActive = ''
-inSubstratesInactive = ''
-inFilePath = '' # Path to directory
+inFileNameActive = 'Mpro2-Reg_R4-R6'
+inFileNameInactive = 'Mpro2-Init'
+inPathDir = 'Data/Train/' # Path to directory
 
 # Input: ESM
 inESM = 'esm2_t36_3B_UR50D' # 'esm2_t48_15B_UR50D' # Model size
@@ -18,21 +18,44 @@ inModelName = 'Mpro2'
 
 # ========================================================================================
 # File location
-filePathActive = os.path.join(inFilePath, inSubstratesActive)
-filePathInactive = os.path.join(inFilePath, inSubstratesInactive)
+filePathActive = os.path.join(inPathDir, inFileNameActive)
+filePathInactive = os.path.join(inPathDir, inFileNameInactive)
 
 
+def setTrainingDevice():
+    print('============================== Set Training Device '
+          '==============================')
+    try:
+        deviceName = torch.cuda.get_device_name(torch.cuda.current_device())
+        print(f'GPU Name: {deviceName}')
+    except:
+        pass
 
-#
-model, alphabet = esm.pretrained.load_model_and_alphabet(inESM)
-batch_converter = alphabet.get_batch_converter()
+    # Select device
+    if torch.cuda.is_available():
+        device = torch.device('cuda') # NVIDIA GPU
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps') # Apple PGU (Metal Performance Shaders)
+    else:
+        device = torch.device('cpu')
+    print(f'Training device: {device}\n\n')
+    return device
 
-def embed(seq):
-    _, _, toks = batch_converter([("x", seq)])
-    toks = toks.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-    with torch.no_grad():
-        rep = model(toks, repr_layers=[33], return_contacts=False)
-    return rep["representations"][33].mean(dim=1).cpu().numpy()
 
-# X = np.array([embed(s) for s in seqs]);  y = np.array(labels)
-clf = LogisticRegression(max_iter=1000).fit(X, y)
+def trainBinaryClassifier(device):
+    #
+    model, alphabet = esm.pretrained.load_model_and_alphabet(inESM)
+    batch_converter = alphabet.get_batch_converter()
+
+    def embed(seq):
+        _, _, toks = batch_converter([("x", seq)])
+        toks = toks.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        with torch.no_grad():
+            rep = model(toks, repr_layers=[33], return_contacts=False)
+        return rep["representations"][33].mean(dim=1).cpu().numpy()
+
+    # X = np.array([embed(s) for s in seqs]);  y = np.array(labels)
+    clf = LogisticRegression(max_iter=1000).fit(X, y)
+
+
+trainBinaryClassifier(device=setTrainingDevice())

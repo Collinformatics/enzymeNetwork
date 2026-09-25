@@ -8,12 +8,11 @@ except:
 
 # Select device
 if torch.cuda.is_available():
-    device = torch.device('cuda')
+    device = torch.device('cuda') # NVIDIA GPU
 elif torch.backends.mps.is_available():
-    device = torch.device('mps')
+    device = torch.device('mps') # Apple GPU (Metal Performance Shaders)
 else:
     device = torch.device('cpu')
-
 print(f'CUDA Available: {torch.cuda.is_available()}\n'
       f'CUDA Version: {torch.version.cuda}\n'
       f'Training Device: {device}')
