@@ -1,7 +1,8 @@
 import esm
 import os
-import torch
 from sklearn.linear_model import LogisticRegression
+import sys
+import torch
 
 
 # Input: Files
@@ -17,11 +18,12 @@ inModelName = 'Mpro2'
 
 
 # ========================================================================================
-def loadData(directory, fileName):
+def loadData(directory, fileName, setClass):
     print('================================= Loading Data '
           '==================================')
-    path = os.path.join(directory, fileName)
+    path = os.path.join(directory, f'substrates_{setClass}_{fileName}.txt')
     print(f'Loading file: {path}')
+
     return path
 
 
@@ -38,17 +40,25 @@ def setTrainingDevice():
     if torch.cuda.is_available():
         device = torch.device('cuda') # NVIDIA GPU
     elif torch.backends.mps.is_available():
-        device = torch.device('mps') # Apple PGU (Metal Performance Shaders)
+        device = torch.device('mps') # Apple GPU (Metal Performance Shaders)
     else:
         device = torch.device('cpu')
     print(f'Training device: {device}\n\n')
     return device
 
 
-def trainBinaryClassifier(device):
+def trainBinaryClassifier(device, esmSize='esm2_t36_3B_UR50D'):
+    """
+        :param device: Hardware used to train the model
+            Ex: cuda, mps, or cpu
+        
+        :param esmSize: Model size
+            Ex: esm2_t48_15B_UR50D, esm2_t36_3B_UR50D
+    """
+
     print('========================== Training Binary Classifier '
           '===========================')
-    model, alphabet = esm.pretrained.load_model_and_alphabet(inESM)
+    model, alphabet = esm.pretrained.load_model_and_alphabet(esmSize)
     batch_converter = alphabet.get_batch_converter()
 
     def embed(seq):
@@ -64,8 +74,8 @@ def trainBinaryClassifier(device):
 
 # ========================================================================================
 # File location
-subsActive = loadData(directory=inPathDir, fileName=inFileNameActive)
-subsInactive = loadData(directory=inPathDir, fileName=inFileNameInactive)
+subsActive = loadData(directory=inPathDir, fileName=inFileNameActive, setClass='Pos')
+subsInactive = loadData(directory=inPathDir, fileName=inFileNameInactive, setClass='Neg')
 
 # Train model
-trainBinaryClassifier(device=setTrainingDevice())
+trainBinaryClassifier(device=setTrainingDevice(), esmSize='esm2_t36_3B_UR50D')
