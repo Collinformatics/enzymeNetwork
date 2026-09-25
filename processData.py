@@ -2,7 +2,6 @@ import os
 import json
 import sys
 
-
 """
     Convert json files obtained by COMET into lists that can be used for training a
     binary classifier
