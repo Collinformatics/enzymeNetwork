@@ -45,8 +45,8 @@ inPathDir = 'Data/Train/' # Path to directory
 
 # ========================================================================================
 def processSubstrates(directory, fileNames, saveTag, setClass, excludeSeq, minCounts):
-    print('================================== Convert File '
-          '=================================')
+    print('================================= Convert File '
+          '==================================')
     if excludeSeq:
         print(f'Exclude n-mers: {', '.join(excludeSeq)}')
     if minCounts:

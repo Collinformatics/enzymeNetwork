@@ -17,9 +17,12 @@ inModelName = 'Mpro2'
 
 
 # ========================================================================================
-# File location
-filePathActive = os.path.join(inPathDir, inFileNameActive)
-filePathInactive = os.path.join(inPathDir, inFileNameInactive)
+def loadData(directory, fileName):
+    print('================================= Loading Data '
+          '==================================')
+    path = os.path.join(directory, fileName)
+    print(f'Loading file: {path}')
+    return path
 
 
 def setTrainingDevice():
@@ -43,7 +46,8 @@ def setTrainingDevice():
 
 
 def trainBinaryClassifier(device):
-    #
+    print('========================== Training Binary Classifier '
+          '===========================')
     model, alphabet = esm.pretrained.load_model_and_alphabet(inESM)
     batch_converter = alphabet.get_batch_converter()
 
@@ -58,4 +62,10 @@ def trainBinaryClassifier(device):
     clf = LogisticRegression(max_iter=1000).fit(X, y)
 
 
+# ========================================================================================
+# File location
+subsActive = loadData(directory=inPathDir, fileName=inFileNameActive)
+subsInactive = loadData(directory=inPathDir, fileName=inFileNameInactive)
+
+# Train model
 trainBinaryClassifier(device=setTrainingDevice())
