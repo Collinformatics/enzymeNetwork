@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 inNodeColor = 'green'
 inNodeSize = 700
 inFontSize = 12
-inArrowSize = 25
+inLineWidth = 2
+inArrowSize = 20
 inArc = 0.3 # Arrow curve
 
 # Input: Save Params
@@ -38,9 +39,9 @@ if not os.path.exists(inSaveDir):
 
 # Graph network
 G = nx.from_dict_of_lists(data, create_using=nx.DiGraph())
-nx.draw(G, with_labels=True, node_size=inNodeSize, font_size=inFontSize,
-        node_color=inNodeColor,
-        arrowsize=inArrowSize, # arrow head size
+nx.draw(G, with_labels=True, node_size=inNodeSize, node_color=inNodeColor,
+        font_size=inFontSize, font_weight='bold',
+        width=inLineWidth, arrowsize=inArrowSize, # arrow head size
         arrowstyle='->', # '->', '-|>', '-['
         connectionstyle=f'arc3,rad={inArc}' # curve for parallel edges
 )
@@ -48,4 +49,4 @@ nx.draw(G, with_labels=True, node_size=inNodeSize, font_size=inFontSize,
 # Save figure
 plt.savefig(savePath, bbox_inches='tight')
 print(f'Graph was saved at path:\n\t{savePath}')
-os.system(f'xdg-open {savePath}')
+os.system(f'xdg-open {savePath}') # Open fig in web browser
