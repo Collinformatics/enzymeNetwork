@@ -63,13 +63,14 @@ def plotNetwork(network):
 
 
 # ========================================================================================
-# Save params
-if not inFileName.endswith('.png') or inFileName.endswith('.jpeg'):
-    inFileName += '.png'
-savePath = os.path.join(inSaveDir, inFileName)
-if not os.path.exists(inSaveDir):
-    os.mkdir(inSaveDir)
+if __name__ == '__main__':
+    # Save params
+    if not inFileName.endswith('.png') or inFileName.endswith('.jpeg'):
+        inFileName += '.png'
+    savePath = os.path.join(inSaveDir, inFileName)
+    if not os.path.exists(inSaveDir):
+        os.mkdir(inSaveDir)
 
 
-# Graph network
-plotNetwork(data)
+    # Graph network
+    plotNetwork(data)
