@@ -1,3 +1,5 @@
 fair-esm
+matplotlib
+pandas
 scikit-learn
 torch
