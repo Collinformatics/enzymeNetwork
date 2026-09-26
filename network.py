@@ -14,7 +14,7 @@ inArrowSize = 20
 inArc = 0.3 # Arrow curve
 
 # Input: Save Params
-inFileName = 'net'
+inFileName = 'net' # Image name, save as .png or .jpeg
 inSaveDir = 'Networks'
 
 
