@@ -36,6 +36,9 @@ def plotNetwork(network, savePath):
     """
     :param network: A dictionary containing the names of each node as keys, and a list of
         nodes a given node makes a connection to.
+
+    :param savePath: Save the figure at this path.
+        Ex: Networks/graphNetwork.png
     """
     print('==================================== Network '
           '====================================')
