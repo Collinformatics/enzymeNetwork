@@ -15,7 +15,7 @@ inArrowSize = 18
 inArc = 0.3 # Arrow curve
 
 # Input: Save Params
-inFileName = 'net' # Image name, save as .png or .jpeg
+inFileName = 'network' # Image name, save as .png or .jpeg
 inSaveDir = 'Networks'
 
 
@@ -32,7 +32,7 @@ data = {
 
 
 # ========================================================================================
-def plotNetwork(network):
+def plotNetwork(network, savePath):
     """
     :param network: A dictionary containing the names of each node as keys, and a list of
         nodes a given node makes a connection to.
@@ -67,10 +67,10 @@ if __name__ == '__main__':
     # Save params
     if not inFileName.endswith('.png') or inFileName.endswith('.jpeg'):
         inFileName += '.png'
-    savePath = os.path.join(inSaveDir, inFileName)
+    path = os.path.join(inSaveDir, inFileName)
     if not os.path.exists(inSaveDir):
         os.mkdir(inSaveDir)
 
 
     # Graph network
-    plotNetwork(data)
+    plotNetwork(network=data, savePath=path)
