@@ -1,13 +1,15 @@
-import os
-import networkx as nx
 import matplotlib.pyplot as plt
+import networkx as nx
+import os
+import subprocess
+
 
 # ========================================================================================
 # Input: Figures
 inNodeColor = 'green'
 inNodeSize = 700
 inFontSize = 12
-inLineWidth = 2
+inLineWidth = 1.5
 inArrowSize = 20
 inArc = 0.3 # Arrow curve
 
@@ -40,7 +42,7 @@ if not os.path.exists(inSaveDir):
 # Graph network
 G = nx.from_dict_of_lists(data, create_using=nx.DiGraph())
 nx.draw(G, with_labels=True, node_size=inNodeSize, node_color=inNodeColor,
-        font_size=inFontSize, font_weight='bold',
+        edge_color='black', font_size=inFontSize, font_weight='bold',
         width=inLineWidth, arrowsize=inArrowSize, # arrow head size
         arrowstyle='->', # '->', '-|>', '-['
         connectionstyle=f'arc3,rad={inArc}' # curve for parallel edges
@@ -49,4 +51,4 @@ nx.draw(G, with_labels=True, node_size=inNodeSize, node_color=inNodeColor,
 # Save figure
 plt.savefig(savePath, bbox_inches='tight')
 print(f'Graph was saved at path:\n\t{savePath}')
-os.system(f'xdg-open {savePath}') # Open fig in web browser
+subprocess.run(['xdg-open', savePath]) # Open fig in web browser
