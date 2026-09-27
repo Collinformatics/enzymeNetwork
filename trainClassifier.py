@@ -59,14 +59,18 @@ class TrainClassifier:
 
         # Data
         self.directory = directory
-        self.embPos, self.positive, self.embNeg, self.negative = None, None, None, None
+        self.embPos, self.positive = None, None
+        self.embNeg, self.negative = None, None
+        self.embTest = None
         pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esm=esmSize)
         pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esm=esmSize)
         _, pathTestEmb = self.getPaths(fileTest, setClass='Test', esm=esmSize)
         
         # Load: Positive
         if os.path.exists(pathPosEmb):
-            self.embPos = self.loadData(pathPosEmb, tag='Positive Substrates')
+            self.embPos = self.loadData(
+                pathPosEmb, tag='Positive Substrates', loadEmb=True
+            )
         else:
             self.positive = self.loadData(pathPosSubs, tag='Positive Substrates')
             self.embPos = self.generateEmbeddings(
@@ -76,7 +80,9 @@ class TrainClassifier:
 
         # Load: Negative
         if os.path.exists(pathNegEmb):
-            self.embNeg = self.loadData(pathNegEmb, tag='Negative Substrates')
+            self.embNeg = self.loadData(
+                pathNegEmb, tag='Negative Substrates', loadEmb=True
+            )
         else:
             self.negative = self.loadData(pathNegSubs, tag='Negative Substrates')
             self.embNeg = self.generateEmbeddings(
@@ -86,9 +92,11 @@ class TrainClassifier:
 
         # Load: Testing
         if os.path.exists(pathTestEmb):
-            self.embNeg = self.loadData(pathTestEmb, tag='Testing Substrates')
+            self.embTest = self.loadData(
+                pathTestEmb, tag='Testing Substrates', loadEmb=True
+            )
         else:
-            self.embNeg = self.generateEmbeddings(
+            self.embTest = self.generateEmbeddings(
                 path=pathTestEmb, sequences=testSubstrates, batch=batchSize,
                 modelSize=esmSize, tag='Testing Substrates'
             )
@@ -107,7 +115,7 @@ class TrainClassifier:
         return pathSubs, pathEmb
 
 
-    def loadData(self, path, tag):
+    def loadData(self, path, tag, loadEmb=False):
         print('================================= Loading Data '
               '==================================')
         print(f'Loading: {tag}\n\t{path}\n')
@@ -128,6 +136,9 @@ class TrainClassifier:
             raise ValueError(f'\n\tThe file path "{path}" is not recognized.\n'
                              f'\tExpected: ".txt" or ".pt".')
         print('\n')
+
+        if loadEmb:
+            data = data.to(self.device)
 
         return data
 
@@ -225,7 +236,7 @@ class TrainClassifier:
         ])  # (N_total,)
 
         print(f'Positive: {len(self.embPos):,}, Negative: {len(self.embNeg):,}')
-        print(f'Embedding dim: {X.shape[1]}')
+        print(f'Embedding dim: {X.shape[1]:,}')
 
         # --- 2. Train/test split ---
         X_train, X_test, y_train, y_test = train_test_split(
