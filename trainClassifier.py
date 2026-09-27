@@ -57,14 +57,16 @@ class TrainClassifier:
         else:
             self.positive = self.loadData(pathPosSubs, tag='Positive Substrates')
             self.generateEmbeddings(path=pathPosEmb, sequences=self.positive,
-                                    batch=batchSize, modelSize=esmSize)
+                                    batch=batchSize, modelSize=esmSize,
+                                    tag='Positive Substrates')
 
         if os.path.exists(pathNegEmb):
             self.embNeg = self.loadData(pathNegEmb, tag='Negative Substrates')
         else:
             self.negative = self.loadData(pathNegSubs, tag='Negative Substrates')
             self.generateEmbeddings(path=pathNegEmb, sequences=self.negative,
-                                    batch=batchSize, modelSize=esmSize)
+                                    batch=batchSize, modelSize=esmSize,
+                                    tag='Negative Substrates')
 
         # Model
         self.modelName = modelName
@@ -125,9 +127,10 @@ class TrainClassifier:
         print(f'Training device: {self.device}\n\n')
 
 
-    def generateEmbeddings(self, path, sequences, batch, modelSize):
+    def generateEmbeddings(self, path, sequences, batch, modelSize, tag):
         print(f'========================== Generating ESM Embeddings '
               f'===========================')
+        print(tag)
         # Step 1: Load the ESM model and batch converter
         layer = None
         if modelSize == 'esm2_t48_15B_UR50D':
