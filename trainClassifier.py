@@ -171,7 +171,7 @@ class TrainClassifier:
         embed, numTokens = [], len(batchTokens)
         numIterations = (numTokens + batch - 1) // batch
         print(f'Generating Embeddings:')
-        for i in tqdm(range(0, numTokens, batch), total=numIterations, desc='Embeddings'):
+        for i in tqdm(range(0, numTokens, batch), total=numIterations, desc='Progress:'):
             chunk = batchTokens[i:i+batch]
             with torch.no_grad():
                 results = model(chunk, repr_layers=[layer])
