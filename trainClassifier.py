@@ -1,13 +1,21 @@
 import esm
 import os
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 import sys
 import torch
 import torch.nn as nn
+from sympy.series import sequences
 from torch.utils.data import Dataset, DataLoader
-from transformers import EsmForSequenceClassification, AutoTokenizer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
+
+"""
+    :param inESMModel: Model size
+        Options: 
+            esm2_t36_3B_UR50D, esm2_t36_3B_UR50D, 
+            esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D
+"""
 
 
 # Input: Files
@@ -16,7 +24,7 @@ inFileNameInactive = 'Mpro2-Init'
 inPathDir = 'Data/Train/' # Path to directory
 
 # Input: ESM
-inESM = 'esm2_t36_3B_UR50D' # 'esm2_t48_15B_UR50D' # Model size
+inESMModel = 'esm2_t36_3B_UR50D'  # Model size
 
 # Input: Model
 inModelName = 'Mpro2' #
@@ -35,33 +43,67 @@ class TrainClassifier:
             :param fileNeg: File name for inactive substrates
 
             :param esmSize: Model size
-                Ex: esm2_t48_15B_UR50D, esm2_t36_3B_UR50D
+                Ex: esm2_t36_3B_UR50D, esm2_t36_3B_UR50D, 
+                    esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D
         """
-        self.device = self.setTrainingDevice()
+        self.setTrainingDevice()
 
         # Load files
         self.directory = directory
-        self.positive = self.loadData(filePos, setClass='Pos')
-        self.negative = self.loadData(fileNeg, setClass='Neg')
+        self.embPos, self.positive, self.embNeg, self.negative = None, None, None, None
+        pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esmSize)
+        pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esmSize)
+        if os.path.exists(pathPosEmb):
+            self.embPos = self.loadData(pathPosEmb)
+        else:
+            self.positive = self.loadData(pathPosSubs)
+            self.generateEmbeddings(path=pathPosEmb, sequences=self.positive,
+                                    modelSize=esmSize, tag='Positive Substrates')
+
+        if os.path.exists(pathNegEmb):
+            self.embNeg = self.loadData(pathNegEmb)
+        else:
+            self.negative = self.loadData(pathNegSubs)
+            self.generateEmbeddings(path=pathNegEmb, sequences=self.negative,
+                                    modelSize=esmSize, tag='Negative Substrates')
 
         # Model
         self.modelName = modelName
         self.pathModel = 'Models'
         if not os.path.exists(self.pathModel):
             os.makedirs(self.pathModel)
-        self.train(esmSize=esmSize)
+
+        self.train()
 
 
-    def loadData(self, fileName, setClass):
+    def getPaths(self, fileName, setClass, esm):
+        pathSubs = os.path.join(self.directory, f'substrates_{setClass}_{fileName}.txt')
+        pathEmb = os.path.join(self.directory, f'embeddings_{setClass}_{fileName}_{esm}.pt')
+        return pathSubs, pathEmb
+
+
+    def loadData(self, path):
         print('================================= Loading Data '
               '==================================')
-        path = os.path.join(self.directory, f'substrates_{setClass}_{fileName}.txt')
         print(f'Loading file: {path}')
-        subs = []
-        with open(path, 'r') as f:
-            subs = list(dict.fromkeys(f.read().splitlines()))
-        print(f'Loaded: {len(subs):,} substrates\n\n')
-        return subs
+        if path.endswith('.txt'):
+            with open(path, 'r') as f:
+                data = list(dict.fromkeys(f.read().splitlines()))
+            print(f'Loaded: {len(data):,} substrates\n')
+            for i, s in enumerate(data):
+                print(f'* {s}')
+                if i >= 10:
+                    break
+        elif path.endswith('.pt'):
+            data = torch.load(path, map_location=self.device)
+            print(data)
+        else:
+            sys.stdout.flush()
+            raise ValueError(f'\n\tThe file path "{path}" is not recognized.\n'
+                             f'\tExpected: ".txt" or ".pt".')
+        print('\n')
+
+        return data
 
 
     def setTrainingDevice(self):
@@ -75,66 +117,60 @@ class TrainClassifier:
 
         # Select device
         if torch.cuda.is_available():
-            device = torch.device('cuda') # NVIDIA GPU
+            self.device = torch.device('cuda') # NVIDIA GPU
         elif torch.backends.mps.is_available():
-            device = torch.device('mps') # Apple GPU (Metal Performance Shaders)
+            self.device = torch.device('mps') # Apple GPU (Metal Performance Shaders)
         else:
-            device = torch.device('cpu')
-        print(f'Training device: {device}\n\n')
-        return device
+            self.device = torch.device('cpu')
+        print(f'Training device: {self.device}\n\n')
 
 
-    def esmEmbeddings(self, sequences, esmSize):
-        print('============================== Get ESM Embeddings '
-              '===============================')
-
-        # Step 2: Load the ESM model and batch converter
-        if esmSize == 'esm2_t36_3B_UR50D':
-        model, alphabet = esm.pretrained.esm2_t36_3B_UR50D()
-        # model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
-
+    def generateEmbeddings(self, path, sequences, modelSize, tag):
+        print(f'Generating ESM Embeddings: {tag}')
+        # Step 1: Load the ESM model and batch converter
+        layer = None
+        if modelSize == 'esm2_t48_15B_UR50D':
+            model, alphabet = esm.pretrained.esm2_t36_3B_UR50D()
+            layer = 48
+        elif modelSize == 'esm2_t36_3B_UR50D':
+            model, alphabet = esm.pretrained.esm2_t36_3B_UR50D()
+            layer = 36
+        elif modelSize == 'esm2_t33_650M_UR50D':
+            model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
+            layer = 33
+        elif modelSize == 'esm2_t30_150M_UR50D':
+            model, alphabet = esm.pretrained.esm2_t30_150M_UR50D()
+            layer = 30
+        else:
+            sys.stdout.flush()
+            raise ValueError(f'\n\tThe ESM model "{modelSize}" is not available.\n'
+                             f'\tUse: esm2_t36_3B_UR50D, esm2_t36_3B_UR50D, '
+                             f'esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D')
         batch_converter = alphabet.get_batch_converter()
 
 
-        # Step 3: Convert substrates to ESM model format and generate embeddings
+        # Step 2: Convert substrates to ESM model format and generate embeddings
         try:
-            batchLabels, batchSubs, batchTokens = batch_converter(subs)
+            batchLabels, batchSubs, batchTokens = batch_converter(
+                [('', seq) for seq in sequences]
+            ) # Use empty str as dummy variable in lieu of activity scores
         except Exception as exc:
             print(f'ERROR: The ESM has failed to evaluate your substrates\n\n'
-                  f'Exception:\n{exc}\n\n'
-                  f'Suggestion:'
-                  f'     Try replacing: esm.pretrained.esm2_t36_3B_UR50D()'
-                  f'\n'
-                  f'     With: esm.pretrained.esm2_t33_650M_UR50D()'
-                  f'\n')
+                  f'Exception:\n{exc}\n\n')
             sys.exit(1)
 
-        print(f'Batch Tokens:{greenLight} {batchTokens.shape}\n'
-              f'{greenLight}{batchTokens}\n\n')
-        slicedTokens = pd.DataFrame(batchTokens[:, 1:-1],
-                                    index=batchSubs,
-                                    columns=subLabel)
-        if useSubCounts:
-            slicedTokens['Counts'] = counts
-        print(f'Sliced Tokens:\n'
-              f'{greenLight}{slicedTokens}\n\n')
+        slicedTokens = pd.DataFrame(batchTokens[:, 1:-1], index=batchSubs,
+                                    columns=[f'R{i+1}' for i in range(len(sequences[0]))])
+        print(f'{slicedTokens}\n\n')
 
-        return slicedTokens, batchSubs, sampleSize
+        return batchTokens
 
 
-    def train(esmSize='esm2_t36_3B_UR50D'):
+    def train(self):
         print('========================== Training Binary Classifier '
               '===========================')
-        print('Positive Substrates:')
-        for i, s in enumerate(positive):
-            print(f'* {s}')
-            if i >= 5:
-                break
-        print('\nNegative Substrates:')
-        for i, s in enumerate(negative):
-            print(f'* {s}')
-            if i >= 5:
-                break
+        embPos = 0
+
 
 
 
@@ -143,6 +179,7 @@ class TrainClassifier:
 
 # Train model
 classifier = TrainClassifier(
-    directory=inPathDir, filePos=inFileNameActive, fileNeg=inFileNameInactive,
-    esmSize='esm2_t36_3B_UR50D'
+    modelName=inModelName, directory=inPathDir,
+    filePos=inFileNameActive, fileNeg=inFileNameInactive,
+    esmSize=inESMModel
 )
