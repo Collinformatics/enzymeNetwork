@@ -23,7 +23,7 @@ inFileNameInactive = 'Mpro2-Init'
 inPathDir = 'Data/Train/' # Path to directory
 
 # Input: ESM
-inESMModel = 'esm2_t33_650M_UR50D' # 'esm2_t36_3B_UR50D'  # Model size
+inESMModel = 'esm2_t36_3B_UR50D' # 'esm2_t36_3B_UR50D'  # Model size
 
 # Input: Model
 inModelName = 'Mpro2' #
@@ -179,7 +179,7 @@ class TrainClassifier:
             embed.append(e)
         embeddings = torch.cat(embed, dim=0)
         print(f'Embeddings shape: {embeddings.shape}')
-        print(f'Sample (first 3, first 8 dims):\n{embeddings[:3, :8]}\n')
+        print(f'Sample: 3x{len(sequences[0])}\n{embeddings[:3, :len(sequences[0])]}\n')
 
         # Save embeddings
         print(f'Saving Embeddings:\n{path}\n\n')
