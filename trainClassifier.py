@@ -51,21 +51,21 @@ class TrainClassifier:
         # Load files
         self.directory = directory
         self.embPos, self.positive, self.embNeg, self.negative = None, None, None, None
-        pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esmSize)
-        pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esmSize)
+        pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esm=esmSize)
+        pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esm=esmSize)
         if os.path.exists(pathPosEmb):
-            self.embPos = self.loadData(pathPosEmb)
+            self.embPos = self.loadData(pathPosEmb, tag='Positive Substrates')
         else:
-            self.positive = self.loadData(pathPosSubs)
+            self.positive = self.loadData(pathPosSubs, tag='Positive Substrates')
             self.generateEmbeddings(path=pathPosEmb, sequences=self.positive,
-                                    modelSize=esmSize, tag='Positive Substrates')
+                                    modelSize=esmSize)
 
         if os.path.exists(pathNegEmb):
-            self.embNeg = self.loadData(pathNegEmb)
+            self.embNeg = self.loadData(pathNegEmb, tag='Negative Substrates')
         else:
-            self.negative = self.loadData(pathNegSubs)
+            self.negative = self.loadData(pathNegSubs, tag='Negative Substrates')
             self.generateEmbeddings(path=pathNegEmb, sequences=self.negative,
-                                    modelSize=esmSize, tag='Negative Substrates')
+                                    modelSize=esmSize)
 
         # Model
         self.modelName = modelName
@@ -82,7 +82,7 @@ class TrainClassifier:
         return pathSubs, pathEmb
 
 
-    def loadData(self, path):
+    def loadData(self, path, tag):
         print('================================= Loading Data '
               '==================================')
         print(f'Loading file: {path}')
@@ -90,6 +90,7 @@ class TrainClassifier:
             with open(path, 'r') as f:
                 data = list(dict.fromkeys(f.read().splitlines()))
             print(f'Loaded: {len(data):,} substrates\n')
+            print(f'{tag}:')
             for i, s in enumerate(data):
                 print(f'* {s}')
                 if i >= 10:
@@ -125,8 +126,8 @@ class TrainClassifier:
         print(f'Training device: {self.device}\n\n')
 
 
-    def generateEmbeddings(self, path, sequences, modelSize, tag):
-        print(f'Generating ESM Embeddings: {tag}')
+    def generateEmbeddings(self, path, sequences, modelSize):
+        print(f'Generating ESM Embeddings:')
         # Step 1: Load the ESM model and batch converter
         layer = None
         if modelSize == 'esm2_t48_15B_UR50D':
