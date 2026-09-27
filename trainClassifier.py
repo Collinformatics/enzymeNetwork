@@ -1,19 +1,18 @@
+from math import trunc
+
 import esm
 import os
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 import sys
 import torch
 import torch.nn as nn
-from sympy.series import sequences
-from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, roc_auc_score
+from tqdm import tqdm
+
 
 """
     :param inESMModel: Model size
         Options: 
-            esm2_t36_3B_UR50D, esm2_t36_3B_UR50D, 
+            esm2_t48_15B_UR50D, esm2_t36_3B_UR50D, 
             esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D
 """
 
@@ -24,15 +23,17 @@ inFileNameInactive = 'Mpro2-Init'
 inPathDir = 'Data/Train/' # Path to directory
 
 # Input: ESM
-inESMModel = 'esm2_t36_3B_UR50D'  # Model size
+inESMModel = 'esm2_t33_650M_UR50D' # 'esm2_t36_3B_UR50D'  # Model size
 
 # Input: Model
 inModelName = 'Mpro2' #
+inBatchSize = 512
 
 
 # ========================================================================================
 class TrainClassifier:
-    def __init__(self, modelName, directory, filePos, fileNeg, esmSize='esm2_t36_3B_UR50D'):
+    def __init__(self, modelName, directory, filePos, fileNeg,
+                 batchSize, esmSize='esm2_t36_3B_UR50D'):
         """
             :param modelName: Save the model with this name
 
@@ -43,7 +44,7 @@ class TrainClassifier:
             :param fileNeg: File name for inactive substrates
 
             :param esmSize: Model size
-                Ex: esm2_t36_3B_UR50D, esm2_t36_3B_UR50D, 
+                Ex: esm2_t48_15B_UR50D, esm2_t36_3B_UR50D,
                     esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D
         """
         self.setTrainingDevice()
@@ -58,14 +59,14 @@ class TrainClassifier:
         else:
             self.positive = self.loadData(pathPosSubs, tag='Positive Substrates')
             self.generateEmbeddings(path=pathPosEmb, sequences=self.positive,
-                                    modelSize=esmSize)
+                                    batch=batchSize, modelSize=esmSize)
 
         if os.path.exists(pathNegEmb):
             self.embNeg = self.loadData(pathNegEmb, tag='Negative Substrates')
         else:
             self.negative = self.loadData(pathNegSubs, tag='Negative Substrates')
             self.generateEmbeddings(path=pathNegEmb, sequences=self.negative,
-                                    modelSize=esmSize)
+                                    batch=batchSize, modelSize=esmSize)
 
         # Model
         self.modelName = modelName
@@ -126,8 +127,9 @@ class TrainClassifier:
         print(f'Training device: {self.device}\n\n')
 
 
-    def generateEmbeddings(self, path, sequences, modelSize):
-        print(f'Generating ESM Embeddings:')
+    def generateEmbeddings(self, path, sequences, batch, modelSize):
+        print(f'========================== Generating ESM Embeddings '
+              f'===========================')
         # Step 1: Load the ESM model and batch converter
         layer = None
         if modelSize == 'esm2_t48_15B_UR50D':
@@ -147,10 +149,11 @@ class TrainClassifier:
             raise ValueError(f'\n\tThe ESM model "{modelSize}" is not available.\n'
                              f'\tUse: esm2_t36_3B_UR50D, esm2_t36_3B_UR50D, '
                              f'esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D')
+        model.to(self.device)
         batch_converter = alphabet.get_batch_converter()
 
 
-        # Step 2: Convert substrates to ESM model format and generate embeddings
+        # Step 2: Convert substrates to ESM model format
         try:
             batchLabels, batchSubs, batchTokens = batch_converter(
                 [('', seq) for seq in sequences]
@@ -159,12 +162,30 @@ class TrainClassifier:
             print(f'ERROR: The ESM has failed to evaluate your substrates\n\n'
                   f'Exception:\n{exc}\n\n')
             sys.exit(1)
-
         slicedTokens = pd.DataFrame(batchTokens[:, 1:-1], index=batchSubs,
                                     columns=[f'R{i+1}' for i in range(len(sequences[0]))])
-        print(f'{slicedTokens}\n\n')
+        print(f'Tokens:\n{slicedTokens}\n\n')
+        batchTokens = batchTokens.to(self.device) # Move tokens to device
 
-        return batchTokens
+        # Step 3: Generate embeddings
+        embed, numTokens = [], len(batchTokens)
+        numIterations = (numTokens + batch - 1) // batch
+        print(f'Generating Embeddings:')
+        for i in tqdm(range(0, numTokens, batch), total=numIterations, desc='Embeddings'):
+            chunk = batchTokens[i:i+batch]
+            with torch.no_grad():
+                results = model(chunk, repr_layers=[layer])
+            e = results['representations'][layer].mean(dim=1).cpu()
+            embed.append(e)
+        embeddings = torch.cat(embed, dim=0)
+        print(f'Embeddings shape: {embeddings.shape}')
+        print(f'Sample (first 3, first 8 dims):\n{embeddings[:3, :8]}\n')
+
+        # Save embeddings
+        print(f'Saving Embeddings:\n{path}\n\n')
+        torch.save(embeddings, path)
+
+        return embeddings
 
 
     def train(self):
@@ -182,5 +203,5 @@ class TrainClassifier:
 classifier = TrainClassifier(
     modelName=inModelName, directory=inPathDir,
     filePos=inFileNameActive, fileNeg=inFileNameInactive,
-    esmSize=inESMModel
+    batchSize=inBatchSize, esmSize=inESMModel
 )
