@@ -77,7 +77,8 @@ class TrainClassifier:
         pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esm=esmSize)
         pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esm=esmSize)
         _, pathTestEmb = self.getPaths(fileTest, setClass='Test', esm=esmSize)
-        
+        pathModel = os.path.join('Models', f'{modelName}.pt')
+
         # Load: Positive
         if os.path.exists(pathPosEmb):
             self.embPos = self.loadData(
@@ -112,13 +113,19 @@ class TrainClassifier:
                 path=pathTestEmb, sequences=testSubstrates, batch=batchSize,
                 modelSize=esmSize, tag='Testing Substrates'
             )
-        
+
         # Train model
-        self.modelName = modelName
-        self.pathModel = 'Models'
-        if not os.path.exists(self.pathModel):
-            os.makedirs(self.pathModel)
-        self.train(epochs)
+        modelDir = 'Models'
+        pathModel = os.path.join(modelDir, f'{modelName}.pt')
+        if not os.path.exists(modelDir):
+            os.makedirs(modelDir)
+        if os.path.exists(pathModel):
+            model = self.loadModel(pathModel)
+        else:
+            model = self.train(epochs, pathModel)
+
+        # Test model
+        self.test(model)
 
 
     def getPaths(self, fileName, setClass, esm):
@@ -236,7 +243,7 @@ class TrainClassifier:
         return embeddings
 
 
-    def train(self, epochs):
+    def train(self, epochs, modelPath):
         print('========================== Training Binary Classifier '
               '===========================')
 
@@ -304,17 +311,31 @@ class TrainClassifier:
                                     target_names=['Negative', 'Positive']))
 
         # Step 6: Save model
-        savePath = os.path.join(self.pathModel, f'{self.modelName}.pt')
-        torch.save(model.state_dict(), savePath)
-        print(f'Saved model: {savePath}\n')
+        torch.save(model.state_dict(), modelPath)
+        print(f'Saved model: {modelPath}\n')
 
-        # Step 7: Test model
+        return model
+
+
+    def loadModel(self, path):
+        print('================================= Loading Model '
+              '=================================')
+        print(f'Loading:\n\t{path}\n')
+        model = nn.Sequential(nn.Linear(self.embPos.shape[1], 2),)
+        model.load_state_dict(torch.load(path, map_location='cpu'))
+        model.eval()
+        return model
+
+
+    def test(self, model):
         print('Test substrates:')
-        for seq in self.embTest:
-            print(seq)
-            # You'll need to generate embeddings for these too
-            # (or precompute them and load from a file)
-            pass
+        model.eval()
+        with torch.no_grad():
+            probs = torch.softmax(model(self.embTest), dim=-1)[:, 1].cpu()
+
+        for seq, p in zip(self.embTest, probs.numpy()):
+            label = 'Active' if p > 0.5 else 'Inactive'
+            print(f'  {seq}  →  {p:.4f}  ({label})')
 
 
 # ========================================================================================
