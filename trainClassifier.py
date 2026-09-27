@@ -1,80 +1,104 @@
 import esm
 import os
+import numpy as np
 import pandas as pd
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.model_selection import train_test_split
 import sys
 import torch
 import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
 
-"""
-    :param inESMModel: Model size
-        Options: 
-            esm2_t48_15B_UR50D, esm2_t36_3B_UR50D, 
-            esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D
-"""
-
-
 # Input: Files
+inEnzymeName = 'Mpro2'
 inFileNameActive = 'Mpro2-Register_Q@R4-R6'
 inFileNameInactive = 'Mpro2-Init'
 inPathDir = 'Data/Train/' # Path to directory
 
 # Input: ESM
-inESMModel = 'esm2_t36_3B_UR50D' # 'esm2_t36_3B_UR50D'  # Model size
-
-# Input: Model
-inModelName = 'Mpro2' #
+inESMModel = 'esm2_t36_3B_UR50D' # Model size
 inBatchSize = 512
+
+# Input: Testing Substrates
+inTestSubstates = [
+    'ATLQSGVE', 'DVILQCAW', 'FICLIQAG', 'CVILHSAG', 'LPVADFCG',
+    'ACVSDEDR', 'IVDERNFS', 'FGHERYHG', 'IPLKASVC', 'TIVSDWAH'
+] # Active and inactive sequences
+inFileNameTestEmbeddings = f'{inEnzymeName}_N-{len(inTestSubstates)}'
 
 
 # ========================================================================================
 class TrainClassifier:
-    def __init__(self, modelName, directory, filePos, fileNeg,
-                 batchSize, esmSize='esm2_t36_3B_UR50D'):
+    def __init__(self, testSubstrates, fileTest, modelName, directory, 
+                 filePos, fileNeg, batchSize, esmSize='esm2_t36_3B_UR50D'):
         """
-            :param modelName: Save the model with this name
+            :param testSubstrates:
+                A list of active and inactive substrates used to test the model
+            
+            :param modelName:
+                Save the model with this name
 
-            :param directory: Path to the directory with positive and negative substrates
+            :param directory:
+                Path to the directory with positive and negative substrates
 
-            :param filePos: File name for active substrates
+            :param filePos:
+                File name for active substrates
 
-            :param fileNeg: File name for inactive substrates
+            :param fileNeg:
+                File name for inactive substrates
 
-            :param esmSize: Model size
+            :param esmSize:
+                Model size
                 Ex: esm2_t48_15B_UR50D, esm2_t36_3B_UR50D,
                     esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D
         """
+        self.device = None
         self.setTrainingDevice()
 
-        # Load files
+        # Data
         self.directory = directory
         self.embPos, self.positive, self.embNeg, self.negative = None, None, None, None
         pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esm=esmSize)
         pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esm=esmSize)
+        _, pathTestEmb = self.getPaths(fileTest, setClass='Test', esm=esmSize)
+        
+        # Load: Positive
         if os.path.exists(pathPosEmb):
             self.embPos = self.loadData(pathPosEmb, tag='Positive Substrates')
         else:
             self.positive = self.loadData(pathPosSubs, tag='Positive Substrates')
-            self.generateEmbeddings(path=pathPosEmb, sequences=self.positive,
-                                    batch=batchSize, modelSize=esmSize,
-                                    tag='Positive Substrates')
+            self.embPos = self.generateEmbeddings(
+                path=pathPosEmb, sequences=self.positive, batch=batchSize,
+                modelSize=esmSize, tag='Positive Substrates'
+            )
 
+        # Load: Negative
         if os.path.exists(pathNegEmb):
             self.embNeg = self.loadData(pathNegEmb, tag='Negative Substrates')
         else:
             self.negative = self.loadData(pathNegSubs, tag='Negative Substrates')
-            self.generateEmbeddings(path=pathNegEmb, sequences=self.negative,
-                                    batch=batchSize, modelSize=esmSize,
-                                    tag='Negative Substrates')
+            self.embNeg = self.generateEmbeddings(
+                path=pathNegEmb, sequences=self.negative, batch=batchSize,
+                modelSize=esmSize, tag='Negative Substrates'
+            )
 
-        # Model
+        # Load: Testing
+        if os.path.exists(pathTestEmb):
+            self.embNeg = self.loadData(pathTestEmb, tag='Testing Substrates')
+        else:
+            self.embNeg = self.generateEmbeddings(
+                path=pathTestEmb, sequences=testSubstrates, batch=batchSize,
+                modelSize=esmSize, tag='Testing Substrates'
+            )
+        
+        # Train model
         self.modelName = modelName
         self.pathModel = 'Models'
         if not os.path.exists(self.pathModel):
             os.makedirs(self.pathModel)
-
-        self.train()
+        self.train(testSubstrates)
 
 
     def getPaths(self, fileName, setClass, esm):
@@ -86,7 +110,7 @@ class TrainClassifier:
     def loadData(self, path, tag):
         print('================================= Loading Data '
               '==================================')
-        print(f'Loading file: {path}')
+        print(f'Loading: {tag}\n\t{path}\n')
         if path.endswith('.txt'):
             with open(path, 'r') as f:
                 data = list(dict.fromkeys(f.read().splitlines()))
@@ -130,7 +154,8 @@ class TrainClassifier:
     def generateEmbeddings(self, path, sequences, batch, modelSize, tag):
         print(f'========================== Generating ESM Embeddings '
               f'===========================')
-        print(tag)
+        print(f'Dataset: {tag}\n')
+
         # Step 1: Load the ESM model and batch converter
         layer = None
         if modelSize == 'esm2_t48_15B_UR50D':
@@ -152,7 +177,6 @@ class TrainClassifier:
                              f'esm2_t33_650M_UR50D, or esm2_t30_150M_UR50D')
         model.to(self.device)
         batch_converter = alphabet.get_batch_converter()
-
 
         # Step 2: Convert substrates to ESM model format
         try:
@@ -179,30 +203,106 @@ class TrainClassifier:
             e = results['representations'][layer].mean(dim=1).cpu()
             embed.append(e)
         embeddings = torch.cat(embed, dim=0)
-        print(f'Embeddings shape: {embeddings.shape}')
+        print(f'\nEmbeddings shape: {embeddings.shape}')
         print(f'Sample: 3x{len(sequences[0])}\n{embeddings[:3, :len(sequences[0])]}\n')
 
         # Save embeddings
-        print(f'Saving Embeddings:\n{path}\n\n')
+        print(f'Saving Embeddings:\n\t{path}\n\n')
         torch.save(embeddings, path)
 
         return embeddings
 
 
-    def train(self):
+    def train(self, testSubs):
         print('========================== Training Binary Classifier '
               '===========================')
-        embPos = 0
 
+        # --- 1. Build tensors ---
+        X = torch.cat([self.embPos, self.embNeg], dim=0)  # (N_total, 1280)
+        y = torch.cat([
+            torch.ones(len(self.embPos), dtype=torch.long),
+            torch.zeros(len(self.embNeg), dtype=torch.long),
+        ])  # (N_total,)
 
+        print(f'Positive: {len(self.embPos):,}, Negative: {len(self.embNeg):,}')
+        print(f'Embedding dim: {X.shape[1]}')
 
+        # --- 2. Train/test split ---
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+        sys.exit()
+
+        train_ds = TensorDataset(X_train, y_train)
+        test_ds = TensorDataset(X_test, y_test)
+        train_dl = DataLoader(train_ds, batch_size=256, shuffle=True)
+        test_dl = DataLoader(test_ds, batch_size=256)
+
+        # --- 3. Model (linear probe) ---
+        model = nn.Sequential(
+            nn.Linear(X.shape[1], 2),
+        ).to(self.device)
+
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        criterion = nn.CrossEntropyLoss()
+
+        # --- 4. Training loop ---
+        model.train()
+        for epoch in range(10):
+            total_loss, correct, total = 0, 0, 0
+            for xb, yb in train_dl:
+                xb, yb = xb.to(self.device), yb.to(self.device)
+                logits = model(xb)
+                loss = criterion(logits, yb)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+                correct += (logits.argmax(dim=1) == yb).sum().item()
+                total += yb.size(0)
+
+            print(f'  Epoch {epoch+1:2d}/10 — loss: {total_loss/len(train_dl):.4f}, '
+                  f'acc: {correct/total:.4f}', flush=True)
+
+        # --- 5. Evaluate ---
+        model.eval()
+        all_preds, all_labels, all_probs = [], [], []
+        with torch.no_grad():
+            for xb, yb in test_dl:
+                xb = xb.to(self.device)
+                logits = model(xb)
+                probs = torch.softmax(logits, dim=-1)
+                all_preds.extend(logits.argmax(dim=-1).cpu().numpy())
+                all_labels.extend(yb.numpy())
+                all_probs.extend(probs[:, 1].cpu().numpy())
+
+        print(f'\nTest AUC: {roc_auc_score(all_labels, all_probs):.4f}')
+        print(classification_report(all_labels, all_preds,
+                                    target_names=['Negative', 'Positive']))
+
+        # --- 6. Save ---
+        savePath = os.path.join(self.pathModel, f'{self.modelName}.pt')
+        torch.save(model.state_dict(), savePath)
+        print(f'Saved model: {savePath}\n')
+
+        # --- 7. Quick test on known substrates ---
+        testSubs = [
+            'ATLQSGVE', 'DVILQCAW', 'FICLIQAG', 'CVILHSAG', 'LPVADFCG',
+            'ACVSDEDR', 'IVDERNFS', 'FGHERYHG', 'IPLKASVC', 'TIVSDWAH'
+        ]
+        print('Test substrates:')
+        for seq in testSubs:
+            # You'll need to generate embeddings for these too
+            # (or precompute them and load from a file)
+            pass
 
 
 # ========================================================================================
 
 # Train model
 classifier = TrainClassifier(
-    modelName=inModelName, directory=inPathDir,
+    testSubstrates=inTestSubstates, fileTest=inFileNameTestEmbeddings, 
+    modelName=inEnzymeName, directory=inPathDir,
     filePos=inFileNameActive, fileNeg=inFileNameInactive,
     batchSize=inBatchSize, esmSize=inESMModel
 )
