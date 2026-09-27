@@ -21,6 +21,9 @@ inPathDir = 'Data/Train/' # Path to directory
 inESMModel = 'esm2_t36_3B_UR50D' # Model size
 inBatchSize = 512
 
+# Input: Training
+inNumEpochs = 10
+
 # Input: Testing Substrates
 inTestSubstates = [
     'ATLQSGVE', 'DVILQCAW', 'FICLIQAG', 'CVILHSAG', 'LPVADFCG',
@@ -31,14 +34,14 @@ inFileNameTestEmbeddings = f'{inEnzymeName}_N-{len(inTestSubstates)}'
 
 # ========================================================================================
 class TrainClassifier:
-    def __init__(self, testSubstrates, fileTest, modelName, directory, 
-                 filePos, fileNeg, batchSize, esmSize='esm2_t36_3B_UR50D'):
+    def __init__(self, modelName, epochs, directory, filePos, fileNeg,
+                 testSubstrates, fileTest, batchSize, esmSize='esm2_t36_3B_UR50D'):
         """
-            :param testSubstrates:
-                A list of active and inactive substrates used to test the model
-            
             :param modelName:
                 Save the model with this name
+
+            :param epochs:
+                Number of training epochs
 
             :param directory:
                 Path to the directory with positive and negative substrates
@@ -48,6 +51,15 @@ class TrainClassifier:
 
             :param fileNeg:
                 File name for inactive substrates
+
+            :param testSubstrates:
+                A list of active and inactive substrates used to test the model
+
+            :param fileTest:
+                File name for testing substrates
+
+            :param batchSize:
+                Split substrates into batches for generating embeddings
 
             :param esmSize:
                 Model size
@@ -106,7 +118,7 @@ class TrainClassifier:
         self.pathModel = 'Models'
         if not os.path.exists(self.pathModel):
             os.makedirs(self.pathModel)
-        self.train(testSubstrates)
+        self.train(epochs)
 
 
     def getPaths(self, fileName, setClass, esm):
@@ -224,11 +236,11 @@ class TrainClassifier:
         return embeddings
 
 
-    def train(self, testSubs):
+    def train(self, epochs):
         print('========================== Training Binary Classifier '
               '===========================')
 
-        # --- 1. Build tensors ---
+        # Step 1: Build tensors
         X = torch.cat([self.embPos, self.embNeg], dim=0)  # (N_total, 1280)
         y = torch.cat([
             torch.ones(len(self.embPos), dtype=torch.long),
@@ -238,18 +250,17 @@ class TrainClassifier:
         print(f'Positive: {len(self.embPos):,}, Negative: {len(self.embNeg):,}')
         print(f'Embedding dim: {X.shape[1]:,}')
 
-        # --- 2. Train/test split ---
+        # Step 2: Train/test split
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
         )
-        sys.exit()
 
         train_ds = TensorDataset(X_train, y_train)
         test_ds = TensorDataset(X_test, y_test)
         train_dl = DataLoader(train_ds, batch_size=256, shuffle=True)
         test_dl = DataLoader(test_ds, batch_size=256)
 
-        # --- 3. Model (linear probe) ---
+        # Step 3: Model (linear probe)
         model = nn.Sequential(
             nn.Linear(X.shape[1], 2),
         ).to(self.device)
@@ -257,9 +268,10 @@ class TrainClassifier:
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
         criterion = nn.CrossEntropyLoss()
 
-        # --- 4. Training loop ---
+        # Step 4: Training loop
+        print('\nTraining Model:')
         model.train()
-        for epoch in range(10):
+        for epoch in range(epochs):
             total_loss, correct, total = 0, 0, 0
             for xb, yb in train_dl:
                 xb, yb = xb.to(self.device), yb.to(self.device)
@@ -271,11 +283,11 @@ class TrainClassifier:
                 total_loss += loss.item()
                 correct += (logits.argmax(dim=1) == yb).sum().item()
                 total += yb.size(0)
-
-            print(f'  Epoch {epoch+1:2d}/10 — loss: {total_loss/len(train_dl):.4f}, '
+            print(f'  Epoch {epoch+1:2d}/{epochs:,} — '
+                  f'loss: {total_loss/len(train_dl):.4f}, '
                   f'acc: {correct/total:.4f}', flush=True)
 
-        # --- 5. Evaluate ---
+        # Step 5: Evaluate
         model.eval()
         all_preds, all_labels, all_probs = [], [], []
         with torch.no_grad():
@@ -291,18 +303,15 @@ class TrainClassifier:
         print(classification_report(all_labels, all_preds,
                                     target_names=['Negative', 'Positive']))
 
-        # --- 6. Save ---
+        # Step 6: Save model
         savePath = os.path.join(self.pathModel, f'{self.modelName}.pt')
         torch.save(model.state_dict(), savePath)
         print(f'Saved model: {savePath}\n')
 
-        # --- 7. Quick test on known substrates ---
-        testSubs = [
-            'ATLQSGVE', 'DVILQCAW', 'FICLIQAG', 'CVILHSAG', 'LPVADFCG',
-            'ACVSDEDR', 'IVDERNFS', 'FGHERYHG', 'IPLKASVC', 'TIVSDWAH'
-        ]
+        # Step 7: Test model
         print('Test substrates:')
-        for seq in testSubs:
+        for seq in self.embTest:
+            print(seq)
             # You'll need to generate embeddings for these too
             # (or precompute them and load from a file)
             pass
@@ -312,8 +321,8 @@ class TrainClassifier:
 
 # Train model
 classifier = TrainClassifier(
-    testSubstrates=inTestSubstates, fileTest=inFileNameTestEmbeddings, 
-    modelName=inEnzymeName, directory=inPathDir,
+    modelName=inEnzymeName, epochs=inNumEpochs, directory=inPathDir,
     filePos=inFileNameActive, fileNeg=inFileNameInactive,
+    testSubstrates=inTestSubstates, fileTest=inFileNameTestEmbeddings,
     batchSize=inBatchSize, esmSize=inESMModel
 )
