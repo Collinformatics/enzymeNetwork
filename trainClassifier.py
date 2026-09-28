@@ -1,4 +1,5 @@
 import esm
+import hashlib
 import os
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ inESMModel = 'esm2_t36_3B_UR50D' # Model size
 inBatchSize = 512
 
 # Input: Training
+inModelName = f'{inEnzymeName}_Reg-Q@R4-R6'
 inNumEpochs = 10
 
 # Input: Testing Substrates
@@ -29,12 +31,13 @@ inTestSubstates = [
     'ATLQSGVE', 'DVILQCAW', 'FICLIQAG', 'CVILHSAG', 'LPVADFCG',
     'ACVSDEDR', 'IVDERNFS', 'FGHERYHG', 'IPLKASVC', 'TIVSDWAH'
 ] # Active and inactive sequences
-inFileNameTestEmbeddings = f'{inEnzymeName}_N-{len(inTestSubstates)}'
+inFileNameTestEmbeddings = inEnzymeName
+inActivityThreshold = 0.5
 
 
 # ========================================================================================
 class TrainClassifier:
-    def __init__(self, modelName, epochs, directory, filePos, fileNeg,
+    def __init__(self, modelName, epochs, threshold, directory, filePos, fileNeg,
                  testSubstrates, fileTest, batchSize, esmSize='esm2_t36_3B_UR50D'):
         """
             :param modelName:
@@ -42,6 +45,10 @@ class TrainClassifier:
 
             :param epochs:
                 Number of training epochs
+
+            :param threshold:
+                Cutoff value for determining if a substrate is active
+                If probability > threshold, then the substrate is active
 
             :param directory:
                 Path to the directory with positive and negative substrates
@@ -70,14 +77,14 @@ class TrainClassifier:
         self.setTrainingDevice()
 
         # Data
+        self.testSubstrates = testSubstrates
         self.directory = directory
         self.embPos, self.positive = None, None
         self.embNeg, self.negative = None, None
         self.embTest = None
         pathPosSubs, pathPosEmb = self.getPaths(filePos, setClass='Pos', esm=esmSize)
         pathNegSubs, pathNegEmb = self.getPaths(fileNeg, setClass='Neg', esm=esmSize)
-        _, pathTestEmb = self.getPaths(fileTest, setClass='Test', esm=esmSize)
-        pathModel = os.path.join('Models', f'{modelName}.pt')
+        pathTestEmb = self.getPaths(fileTest, setClass='Test', esm=esmSize)
 
         # Load: Positive
         if os.path.exists(pathPosEmb):
@@ -125,13 +132,22 @@ class TrainClassifier:
             model = self.train(epochs, pathModel)
 
         # Test model
-        self.test(model)
+        self.test(model, threshold)
 
 
     def getPaths(self, fileName, setClass, esm):
-        pathSubs = os.path.join(self.directory, f'substrates_{setClass}_{fileName}.txt')
-        pathEmb = os.path.join(self.directory, f'embeddings_{setClass}_{fileName}_{esm}.pt')
-        return pathSubs, pathEmb
+        if 'test' in setClass.lower():
+            s = f'{"-".join(self.testSubstrates)}'.encode()
+            hash = hashlib.sha256(s).hexdigest()
+            pathEmb = os.path.join(self.directory,
+                                   f'embeddings_{setClass}_{fileName}_{esm}_{hash}.pt')
+            return pathEmb
+        else:
+            pathSubs = os.path.join(self.directory,
+                                    f'substrates_{setClass}_{fileName}.txt')
+            pathEmb = os.path.join(self.directory,
+                                   f'embeddings_{setClass}_{fileName}_{esm}.pt')
+            return pathSubs, pathEmb
 
 
     def loadData(self, path, tag, loadEmb=False):
@@ -320,30 +336,35 @@ class TrainClassifier:
     def loadModel(self, path):
         print('================================= Loading Model '
               '=================================')
-        print(f'Loading:\n\t{path}\n')
+        print(f'Loading:\n\t{path}\n\n')
         model = nn.Sequential(nn.Linear(self.embPos.shape[1], 2),)
         model.load_state_dict(torch.load(path, map_location='cpu'))
         model.eval()
         return model
 
 
-    def test(self, model):
-        print('Test substrates:')
+    def test(self, model, activityCutoff):
+        print('================================== Test Model '
+              '===================================')
+        print(f'Activity Threshold: {activityCutoff}\n')
+        print('Predictions:')
         model.eval()
         with torch.no_grad():
-            probs = torch.softmax(model(self.embTest), dim=-1)[:, 1].cpu()
+            probs = torch.softmax(model(self.embTest.cpu()), dim=-1)[:, 1]
 
-        for seq, p in zip(self.embTest, probs.numpy()):
-            label = 'Active' if p > 0.5 else 'Inactive'
-            print(f'  {seq}  →  {p:.4f}  ({label})')
+        df = pd.DataFrame({
+            'Probability': probs.numpy(),
+            'Activity': ['Active' if p > 0.5 else 'Inactive' for p in probs.numpy()],
+        }, index=self.testSubstrates)
+        print(df)
 
 
 # ========================================================================================
 
 # Train model
 classifier = TrainClassifier(
-    modelName=inEnzymeName, epochs=inNumEpochs, directory=inPathDir,
-    filePos=inFileNameActive, fileNeg=inFileNameInactive,
+    modelName=inModelName, epochs=inNumEpochs, threshold=inActivityThreshold,
+    directory=inPathDir, filePos=inFileNameActive, fileNeg=inFileNameInactive,
     testSubstrates=inTestSubstates, fileTest=inFileNameTestEmbeddings,
     batchSize=inBatchSize, esmSize=inESMModel
 )
